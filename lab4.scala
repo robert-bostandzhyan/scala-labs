@@ -1,5 +1,4 @@
 //---------------------------------------------Equality-----------------------------------------------------------
-
 object EqType extends Enumeration {
   val Const, Assign, Var = Value
 }
@@ -42,26 +41,29 @@ class EqPart[T] private(val name: Option[String], val value: Option[T]) {
 }
 
 //---------------------------------------------EqSystem-----------------------------------------------------------
-
 object EqSystem {
   private def construct[T](eqList: List[Equality[T]]): (List[Equality[T]], Map[String, T], List[Equality[T]]) = {
     val groups = eqList.groupBy(_.eqType)
-    (groups.getOrElse(EqType.Const, List.empty[Equality[T]]),
-      groups.getOrElse(EqType.Assign, List.empty[Equality[T]])
+    (groups.getOrElse(EqType.Const, List.empty),
+      groups.getOrElse(EqType.Assign, List.empty)
         .map(eq => (eq.left.name.get, eq.right.value.get))
         .toMap,
-      groups.getOrElse(EqType.Var, List.empty[Equality[T]]))
+      groups.getOrElse(EqType.Var, List.empty))
   }
 
   implicit class EqSystemNum[T:Numeric](s: EqSystem[T]) {
     def solve(name: String): Option[T] = {
-      val res = s.assignEqs.get(name)
-      if (res.isDefined) {
-        res
-      } else if (s.constEqs.isEmpty && s.assignEqs.isEmpty) {
+      if (s.isTrivialUnsolvable) {
         None
       } else {
-        s.reduceSystem().solve(name)
+        val res = s.assignEqs.get(name)
+        if (res.isDefined) {
+          if (s.reduceSystem().isSolvable) res else None
+        } else if (s.constEqs.isEmpty && s.assignEqs.isEmpty) {
+          Option(0.asInstanceOf[T])
+        } else {
+          s.reduceSystem().solve(name)
+        }
       }
     }
   }
@@ -87,7 +89,7 @@ class EqSystem[T] private(val system: (List[Equality[T]], Map[String, T], List[E
   }
 
   def isSolvable: Boolean = {
-    if (constEqs.exists(eq => eq.left.value.get != eq.right.value.get)) {
+    if (isTrivialUnsolvable) {
       false
     } else if (constEqs.isEmpty && assignEqs.isEmpty) {
       true
@@ -96,21 +98,23 @@ class EqSystem[T] private(val system: (List[Equality[T]], Map[String, T], List[E
     }
   }
 
-  private def reduceSystem(): EqSystem[T] = new EqSystem(
-    varEqs.map(eq => {
-      val l = assignEqs.get(eq.left.name.get)
-      val r = assignEqs.get(eq.right.name.get)
-      if (l.isDefined && r.isDefined) {
-        new Equality[T](l.get, r.get)
-      } else if (l.isDefined && r.isEmpty) {
-        new Equality[T](l.get, eq.right.name.get)
-      } else if (l.isEmpty && r.isDefined) {
-        new Equality[T](eq.left.name.get, r.get)
-      } else {
-        new Equality[T](eq.left.name.get, eq.right.name.get)
-      }
-    })
-  )
+  private def isTrivialUnsolvable: Boolean = constEqs.exists(eq => eq.left.value.get != eq.right.value.get)
+
+  private def reduceSystem(): EqSystem[T] = new EqSystem(varEqs.map(substituteValues))
+
+  private def substituteValues(eq: Equality[T]): Equality[T] = {
+    val l = assignEqs.get(eq.left.name.get)
+    val r = assignEqs.get(eq.right.name.get)
+    if (l.isDefined && r.isDefined) {
+      new Equality[T](l.get, r.get)
+    } else if (l.isDefined && r.isEmpty) {
+      new Equality[T](l.get, eq.right.name.get)
+    } else if (l.isEmpty && r.isDefined) {
+      new Equality[T](eq.left.name.get, r.get)
+    } else {
+      new Equality[T](eq.left.name.get, eq.right.name.get)
+    }
+  }
 }
 
 //----------------------------------------------------------------------------------------------------------------
@@ -131,5 +135,5 @@ object Main extends App {
   println(system.isSolvable)
   println("a=" + system.solve("a"))
   println("c=" + system.solve("c"))
-  println("f=" + system.solve("i"))
+  println("i=" + system.solve("i"))
 }
